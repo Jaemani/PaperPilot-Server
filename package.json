@@ -16,7 +16,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
-    "openai": "^6.17.0"
+    "openai": "^6.22.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

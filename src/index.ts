@@ -24,6 +24,7 @@ app.use("/analyze", limiter);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  timeout: 30000, // 30 second timeout
 });
 
 // 🛠️ Logging Middleware
@@ -61,48 +62,62 @@ const getProfileContext = (profileId?: string): string => {
   return "";
 };
 
+// Helper: Safe JSON parsing with fallback
+const parseJSONResponse = (text: string, fallback: any = {}): any => {
+  try {
+    // Try to extract JSON from markdown code blocks if present
+    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/```\s*([\s\S]*?)\s*```/);
+    const cleanText = jsonMatch ? jsonMatch[1] : text;
+    return JSON.parse(cleanText.trim());
+  } catch (error) {
+    console.error("❌ JSON parsing failed:", error);
+    console.error("Raw text:", text);
+    return fallback;
+  }
+};
+
 // --- 1. Term Check API (Context-Aware with Profile) ---
 app.post("/analyze/term", async (req: Request, res: Response) => {
   const { term, context, profileId } = req.body;
   const profileContext = getProfileContext(profileId);
 
   try {
-    // @ts-ignore: Assuming new SDK types might not be fully updated in local environment yet
-    const response = await openai.responses.create({
-      model: "gpt-5",
-      input: [
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5-mini",
+      messages: [
         {
           role: "system",
-          content: [
-            {
-              type: "input_text",
-              text: `You are an academic writing assistant. Analyze if the selected term is formal enough for top-tier research papers. Respond in JSON format.${profileContext}`
-            }
-          ]
+          content: `You are an academic writing assistant. Analyze if the selected term is formal enough for top-tier research papers. Respond ONLY with valid JSON format.${profileContext}`
         },
         {
           role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: `Term: "${term}"\nContext: "${context}"\n\nIs this term informal? If yes, provide 3 formal alternatives.
-              If the term is nonsensical (gibberish), set suggestions to empty array.
-              Return JSON: { "isInformal": boolean, "suggestions": string[], "reason": string }`
-            }
-          ]
+          content: `Term: "${term}"\nContext: "${context}"\n\nIs this term informal? If yes, provide 3 formal alternatives.
+If the term is nonsensical (gibberish), set suggestions to empty array.
+Return JSON: { "isInformal": boolean, "suggestions": string[], "reason": string }`
         }
-      ]
+      ],
+      temperature: 0.3,
+      max_tokens: 500,
     });
 
-    // @ts-ignore
-    const content = response.output_text || "{}";
-    const jsonResponse = JSON.parse(content);
+    const responseText = completion.choices[0]?.message?.content || "{}";
+    const jsonResponse = parseJSONResponse(responseText, {
+      isInformal: false,
+      suggestions: [],
+      reason: "Unable to analyze term"
+    });
 
     console.log(`✅ GPT Response (profile: ${profileId || "none"}):`, JSON.stringify(jsonResponse, null, 2));
     res.json(jsonResponse);
-  } catch (error) {
-    console.error("❌ Error:", error);
-    res.status(500).json({ error: "Failed to analyze term" });
+  } catch (error: any) {
+    console.error("❌ Error:", error.message);
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      res.status(504).json({ error: "Request timeout. Please try again." });
+    } else if (error.status === 429) {
+      res.status(429).json({ error: "Rate limit exceeded. Please wait a moment." });
+    } else {
+      res.status(500).json({ error: "Failed to analyze term", details: error.message });
+    }
   }
 });
 
@@ -146,40 +161,36 @@ Citation Candidates:
 ${candidateList}
 ${profileContext}`;
 
-    // @ts-ignore
-    const response = await openai.responses.create({
-      model: "gpt-5",
-      input: [
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5-mini",
+      messages: [
         {
           role: "system",
-          content: [
-            {
-              type: "input_text",
-              text: "You are an academic citation style advisor. Analyze citation placements and formats for research papers. Respond in JSON format."
-            }
-          ]
+          content: "You are an academic citation style advisor. Analyze citation placements and formats for research papers. Respond ONLY with valid JSON format."
         },
         {
           role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: prompt
-            }
-          ]
+          content: prompt
         }
-      ]
+      ],
+      temperature: 0.2,
+      max_tokens: 2000,
     });
 
-    // @ts-ignore
-    const content = response.output_text || "[]";
-    const jsonResponse = JSON.parse(content);
+    const responseText = completion.choices[0]?.message?.content || "[]";
+    const jsonResponse = parseJSONResponse(responseText, []);
 
     console.log(`✅ Batch Citation Analysis (${candidates.length} candidates):`, JSON.stringify(jsonResponse, null, 2));
     res.json(jsonResponse);
-  } catch (error) {
-    console.error("❌ Error:", error);
-    res.status(500).json({ error: "Failed to analyze citations batch" });
+  } catch (error: any) {
+    console.error("❌ Error:", error.message);
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      res.status(504).json({ error: "Request timeout. Please try again." });
+    } else if (error.status === 429) {
+      res.status(429).json({ error: "Rate limit exceeded. Please wait a moment." });
+    } else {
+      res.status(500).json({ error: "Failed to analyze citations batch", details: error.message });
+    }
   }
 });
 
@@ -188,35 +199,36 @@ app.post("/analyze/format", async (req: Request, res: Response) => {
   const { rawCaption } = req.body;
 
   try {
-    // @ts-ignore
-    const response = await openai.responses.create({
-      model: "gpt-5",
-      input: [
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5-mini",
+      messages: [
         {
           role: "system",
-          content: [
-             { type: "input_text", text: "You are a structural parser. Extract components from a figure/table caption. Respond in JSON format." }
-          ]
+          content: "You are a structural parser. Extract components from a figure/table caption. Respond ONLY with valid JSON format."
         },
         {
           role: "user",
-          content: [
-             { type: "input_text", text: `Caption: "${rawCaption}"\n\nExtract prefix, number, separator, and main content.
-             Return JSON: { "prefix": string, "number": string, "separator": string, "content": string }` }
-          ]
+          content: `Caption: "${rawCaption}"\n\nExtract prefix, number, separator, and main content.
+Return JSON: { "prefix": string, "number": string, "separator": string, "content": string }`
         }
-      ]
+      ],
+      temperature: 0.1,
+      max_tokens: 300,
     });
 
-    // @ts-ignore
-    const content = response.output_text || "{}";
-    const jsonResponse = JSON.parse(content);
+    const responseText = completion.choices[0]?.message?.content || "{}";
+    const jsonResponse = parseJSONResponse(responseText, {
+      prefix: "",
+      number: "",
+      separator: "",
+      content: rawCaption
+    });
 
     console.log("✅ GPT Response:", JSON.stringify(jsonResponse, null, 2));
     res.json(jsonResponse);
-  } catch (error) {
-    console.error("❌ Error:", error);
-    res.status(500).json({ error: "Failed to parse format" });
+  } catch (error: any) {
+    console.error("❌ Error:", error.message);
+    res.status(500).json({ error: "Failed to parse format", details: error.message });
   }
 });
 
@@ -225,38 +237,44 @@ app.post("/analyze/cite", async (req: Request, res: Response) => {
   const { sentence } = req.body;
 
   try {
-    // @ts-ignore
-    const response = await openai.responses.create({
-      model: "gpt-5",
-      input: [
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5-mini",
+      messages: [
         {
           role: "system",
-          content: [
-             { type: "input_text", text: "Classify if the sentence is a claim that needs a citation. Respond in JSON format." }
-          ]
+          content: "Classify if the sentence is a claim that needs a citation. Respond ONLY with valid JSON format."
         },
         {
           role: "user",
-          content: [
-             { type: "input_text", text: `Sentence: "${sentence}"\n\nClassify as: "GENERAL" (fact), "OWN" (author's result), or "EXTERNAL" (external claim).
-             Return JSON: { "type": "GENERAL" | "OWN" | "EXTERNAL", "reason": string }` }
-          ]
+          content: `Sentence: "${sentence}"\n\nClassify as: "GENERAL" (fact), "OWN" (author's result), or "EXTERNAL" (external claim).
+Return JSON: { "type": "GENERAL" | "OWN" | "EXTERNAL", "reason": string }`
         }
-      ]
+      ],
+      temperature: 0.2,
+      max_tokens: 300,
     });
 
-    // @ts-ignore
-    const content = response.output_text || "{}";
-    const jsonResponse = JSON.parse(content);
+    const responseText = completion.choices[0]?.message?.content || "{}";
+    const jsonResponse = parseJSONResponse(responseText, {
+      type: "GENERAL",
+      reason: "Unable to classify"
+    });
 
     console.log("✅ GPT Response:", JSON.stringify(jsonResponse, null, 2));
     res.json(jsonResponse);
-  } catch (error) {
-    console.error("❌ Error:", error);
-    res.status(500).json({ error: "Failed to classify sentence" });
+  } catch (error: any) {
+    console.error("❌ Error:", error.message);
+    res.status(500).json({ error: "Failed to classify sentence", details: error.message });
   }
 });
 
+// Health check endpoint
+app.get("/health", (req: Request, res: Response) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 app.listen(port, () => {
-  console.log(`PaperPilot Backend running at http://localhost:${port}`);
+  console.log(`🚀 PaperPilot Server v1.4.0 running at http://localhost:${port}`);
+  console.log(`📊 Model: gpt-5-mini (optimized for cost)`);
+  console.log(`⏱️  Timeout: 30s`);
 });
