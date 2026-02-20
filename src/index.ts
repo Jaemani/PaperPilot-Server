@@ -24,7 +24,7 @@ app.use("/analyze", limiter);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  timeout: 30000, // 30 second timeout
+  timeout: 90000, // 90 second timeout for gpt-5
 });
 
 // 🛠️ Logging Middleware
@@ -82,6 +82,10 @@ app.post("/analyze/term", async (req: Request, res: Response) => {
   const profileContext = getProfileContext(profileId);
 
   try {
+    console.log(`⏳ [TERM] Starting analysis for term: "${term.substring(0, 50)}..."`);
+    console.log(`📝 [TERM] Context length: ${context.length} chars`);
+
+    const startTime = Date.now();
     const response = await openai.responses.create({
       model: "gpt-5",
       input: [
@@ -145,17 +149,25 @@ Note:
       ]
     });
 
+    const elapsed = Date.now() - startTime;
+    console.log(`⏱️ [TERM] OpenAI API responded in ${elapsed}ms`);
+
     const responseText = response.output_text || "{}";
+    console.log(`📄 [TERM] Raw response (${responseText.length} chars):`, responseText.substring(0, 200));
+
     const jsonResponse = parseJSONResponse(responseText, {
       isInformal: false,
       suggestions: [],
       reason: "Unable to analyze term"
     });
 
-    console.log(`✅ GPT Response (profile: ${profileId || "none"}):`, JSON.stringify(jsonResponse, null, 2));
+    console.log(`✅ [TERM] Parsed JSON response (profile: ${profileId || "none"}):`, JSON.stringify(jsonResponse, null, 2));
     res.json(jsonResponse);
   } catch (error: any) {
-    console.error("❌ Error:", error.message);
+    console.error("❌ [TERM] Error:", error.message);
+    console.error("❌ [TERM] Error code:", error.code);
+    console.error("❌ [TERM] Error status:", error.status);
+    console.error("❌ [TERM] Full error:", error);
     if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
       res.status(504).json({ error: "Request timeout. Please try again." });
     } else if (error.status === 429) {
@@ -664,5 +676,5 @@ app.get("/health", (req: Request, res: Response) => {
 app.listen(port, () => {
   console.log(`🚀 PaperPilot Server v1.4.0 running at http://localhost:${port}`);
   console.log(`📊 Model: gpt-5 (Responses API)`);
-  console.log(`⏱️  Timeout: 30s`);
+  console.log(`⏱️  Timeout: 90s`);
 });
