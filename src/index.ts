@@ -82,24 +82,70 @@ app.post("/analyze/term", async (req: Request, res: Response) => {
   const profileContext = getProfileContext(profileId);
 
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-5-mini",
-      messages: [
+    const response = await openai.responses.create({
+      model: "gpt-5",
+      input: [
         {
           role: "system",
-          content: `You are an academic writing assistant. Analyze if the selected term is formal enough for top-tier research papers. Respond ONLY with valid JSON format.${profileContext}`
+          content: [
+            {
+              type: "input_text",
+              text: `You are an expert academic writing assistant for top-tier research papers. Your task is to thoroughly analyze the selected term/phrase within its full context.
+
+IMPORTANT CHECKS (in order of priority):
+1. **Spelling errors** - Check for typos, misspellings, or incorrect word forms
+2. **Grammar errors** - Subject-verb agreement, tense consistency, article usage
+3. **Formality** - Is it appropriate for academic publications (Nature, Science, AAAI, ACL, etc.)?
+4. **Clarity** - Is the term precise and unambiguous in this context?
+5. **Conciseness** - Can it be expressed more succinctly without losing meaning?
+
+CONTEXT: You are provided with surrounding paragraphs. Use this full context to understand:
+- The surrounding sentences and their meaning
+- The author's intent and argument flow
+- Domain-specific terminology and conventions
+
+Respond ONLY with valid JSON format.${profileContext}`
+            }
+          ]
         },
         {
           role: "user",
-          content: `Term: "${term}"\nContext: "${context}"\n\nIs this term informal? If yes, provide 3 formal alternatives.
-If the term is nonsensical (gibberish), set suggestions to empty array.
-Return JSON: { "isInformal": boolean, "suggestions": string[], "reason": string }`
+          content: [
+            {
+              type: "input_text",
+              text: `Selected term/phrase: "${term}"
+
+Full context (surrounding paragraphs):
+"""
+${context}
+"""
+
+Analyze the term thoroughly:
+1. Check for spelling/typo errors first
+2. Check grammar errors
+3. Evaluate formality for academic writing
+4. Consider the full context to understand proper usage
+
+If ANY issues found, provide:
+- 3-5 high-quality alternatives that fit the context
+- Detailed reasoning explaining what's wrong and why each suggestion is better
+- Be specific about whether it's a spelling error, grammar error, formality issue, or clarity problem
+
+If the term is perfect as-is, explain why it's appropriate.
+
+Return JSON: { "isInformal": boolean, "suggestions": string[], "reason": string }
+
+Note:
+- isInformal=true if there are ANY issues (spelling, grammar, formality, clarity)
+- suggestions should be contextually appropriate, not just generic synonyms
+- reason should be detailed and educational (2-4 sentences minimum)`
+            }
+          ]
         }
-      ],
-      max_completion_tokens: 500,
+      ]
     });
 
-    const responseText = completion.choices[0]?.message?.content || "{}";
+    const responseText = response.output_text || "{}";
     const jsonResponse = parseJSONResponse(responseText, {
       isInformal: false,
       suggestions: [],
@@ -169,11 +215,11 @@ Citation Candidates:
 ${candidateList}
 ${profileContext}`;
 
-    console.log("⏳ [SERVER] Calling OpenAI API (gpt-5-mini)...");
+    console.log("⏳ [SERVER] Calling OpenAI API (gpt-5)...");
     const apiStartTime = Date.now();
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-5-mini",
+      model: "gpt-4o",
       messages: [
         {
           role: "system",
@@ -222,7 +268,7 @@ app.post("/analyze/format", async (req: Request, res: Response) => {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-5-mini",
+      model: "gpt-4o",
       messages: [
         {
           role: "system",
@@ -277,7 +323,7 @@ app.post("/analyze/format-reference", async (req: Request, res: Response) => {
     }
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-5-mini",
+      model: "gpt-4o",
       messages: [
         {
           role: "system",
@@ -331,7 +377,7 @@ app.post("/analyze/cite", async (req: Request, res: Response) => {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-5-mini",
+      model: "gpt-4o",
       messages: [
         {
           role: "system",
@@ -400,7 +446,7 @@ app.post("/analyze/review-paper", async (req: Request, res: Response) => {
     if (comparisonContext) {
       try {
         const benchmarkCompletion = await openai.chat.completions.create({
-          model: "gpt-5-mini",
+          model: "gpt-4o",
           messages: [
             {
               role: "system",
@@ -440,7 +486,7 @@ Provide JSON:
     const reviewerPromises = [
       // Reviewer A: Theorist (Novelty & Formalism)
       openai.chat.completions.create({
-        model: "gpt-5-mini",
+        model: "gpt-4o",
         messages: [
           {
             role: "system",
@@ -470,7 +516,7 @@ Provide JSON:
 
       // Reviewer B: Experimentalist (Empirical Rigor)
       openai.chat.completions.create({
-        model: "gpt-5-mini",
+        model: "gpt-4o",
         messages: [
           {
             role: "system",
@@ -498,7 +544,7 @@ Provide JSON:
 
       // Reviewer C: Impact Assessor (Significance)
       openai.chat.completions.create({
-        model: "gpt-5-mini",
+        model: "gpt-4o",
         messages: [
           {
             role: "system",
@@ -617,6 +663,6 @@ app.get("/health", (req: Request, res: Response) => {
 
 app.listen(port, () => {
   console.log(`🚀 PaperPilot Server v1.4.0 running at http://localhost:${port}`);
-  console.log(`📊 Model: gpt-5-mini (optimized for cost)`);
+  console.log(`📊 Model: gpt-5 (Responses API)`);
   console.log(`⏱️  Timeout: 30s`);
 });
