@@ -96,7 +96,6 @@ If the term is nonsensical (gibberish), set suggestions to empty array.
 Return JSON: { "isInformal": boolean, "suggestions": string[], "reason": string }`
         }
       ],
-      temperature: 0.3,
       max_completion_tokens: 500,
     });
 
@@ -185,7 +184,6 @@ ${profileContext}`;
           content: prompt
         }
       ],
-      temperature: 0.2,
       max_completion_tokens: 2000,
     });
 
@@ -236,7 +234,6 @@ app.post("/analyze/format", async (req: Request, res: Response) => {
 Return JSON: { "prefix": string, "number": string, "separator": string, "content": string }`
         }
       ],
-      temperature: 0.1,
       max_completion_tokens: 300,
     });
 
@@ -306,7 +303,6 @@ Return JSON:
 }`
         }
       ],
-      temperature: 0.2,
       max_completion_tokens: 800,
     });
 
@@ -347,7 +343,6 @@ app.post("/analyze/cite", async (req: Request, res: Response) => {
 Return JSON: { "type": "GENERAL" | "OWN" | "EXTERNAL", "reason": string }`
         }
       ],
-      temperature: 0.2,
       max_completion_tokens: 300,
     });
 
@@ -429,7 +424,6 @@ Provide JSON:
 }`
             }
           ],
-          temperature: 0.2,
           max_completion_tokens: 600
         });
 
@@ -471,7 +465,6 @@ Provide JSON:
 }`
           }
         ],
-        temperature: 0.3,
         max_completion_tokens: 600
       }),
 
@@ -500,7 +493,6 @@ Provide JSON:
 }`
           }
         ],
-        temperature: 0.3,
         max_completion_tokens: 600
       }),
 
@@ -531,7 +523,6 @@ Provide JSON:
 }`
           }
         ],
-        temperature: 0.3,
         max_completion_tokens: 600
       })
     ];
