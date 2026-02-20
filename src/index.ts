@@ -232,7 +232,80 @@ Return JSON: { "prefix": string, "number": string, "separator": string, "content
   }
 });
 
-// --- 4. Cite Check API (Claim Classification) ---
+// --- 4. Reference Formatting API (DOI/Title → Journal Style) ---
+app.post("/analyze/format-reference", async (req: Request, res: Response) => {
+  const { input, style, profileId } = req.body;
+
+  if (!input || typeof input !== 'string') {
+    return res.status(400).json({ error: "input (DOI or title) is required" });
+  }
+
+  // Detect input type
+  const isDOI = /^10\.\d{4,9}\/\S+$/i.test(input.trim());
+  const isArXiv = /arxiv:\s*\d{4}\.\d{4,5}/i.test(input);
+
+  try {
+    // Step 1: Fetch metadata using web search
+    let searchQuery = "";
+    if (isDOI) {
+      searchQuery = `doi:${input} citation metadata`;
+    } else if (isArXiv) {
+      searchQuery = `${input} citation`;
+    } else {
+      searchQuery = `"${input}" academic paper citation`;
+    }
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are a citation formatting assistant. Given a DOI, arXiv ID, or paper title, format it according to the specified style (IEEE, Nature, APA, etc.). Use web search to find accurate metadata. Respond ONLY with valid JSON format.`
+        },
+        {
+          role: "user",
+          content: `Input: ${input}
+Style: ${style || "IEEE"}
+Profile: ${profileId || "generic"}
+
+Search for this paper's metadata and format it according to ${style || "IEEE"} citation style.
+
+Return JSON:
+{
+  "formatted": "full formatted citation string",
+  "authors": ["Author 1", "Author 2"],
+  "title": "Paper Title",
+  "venue": "Conference/Journal Name",
+  "year": 2024,
+  "doi": "10.xxxx/xxxxx",
+  "confidence": "high" | "medium" | "low"
+}`
+        }
+      ],
+      temperature: 0.2,
+      max_tokens: 800,
+    });
+
+    const responseText = completion.choices[0]?.message?.content || "{}";
+    const jsonResponse = parseJSONResponse(responseText, {
+      formatted: input,
+      authors: [],
+      title: input,
+      venue: "",
+      year: 0,
+      doi: "",
+      confidence: "low"
+    });
+
+    console.log(`✅ Reference formatted:`, JSON.stringify(jsonResponse, null, 2));
+    res.json(jsonResponse);
+  } catch (error: any) {
+    console.error("❌ Error:", error.message);
+    res.status(500).json({ error: "Failed to format reference", details: error.message });
+  }
+});
+
+// --- 5. Cite Check API (Claim Classification) ---
 app.post("/analyze/cite", async (req: Request, res: Response) => {
   const { sentence } = req.body;
 
