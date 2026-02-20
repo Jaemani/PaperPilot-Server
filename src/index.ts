@@ -97,7 +97,7 @@ Return JSON: { "isInformal": boolean, "suggestions": string[], "reason": string 
         }
       ],
       temperature: 0.3,
-      max_tokens: 500,
+      max_completion_tokens: 500,
     });
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -186,7 +186,7 @@ ${profileContext}`;
         }
       ],
       temperature: 0.2,
-      max_tokens: 2000,
+      max_completion_tokens: 2000,
     });
 
     const apiElapsed = Date.now() - apiStartTime;
@@ -237,7 +237,7 @@ Return JSON: { "prefix": string, "number": string, "separator": string, "content
         }
       ],
       temperature: 0.1,
-      max_tokens: 300,
+      max_completion_tokens: 300,
     });
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -307,7 +307,7 @@ Return JSON:
         }
       ],
       temperature: 0.2,
-      max_tokens: 800,
+      max_completion_tokens: 800,
     });
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -348,7 +348,7 @@ Return JSON: { "type": "GENERAL" | "OWN" | "EXTERNAL", "reason": string }`
         }
       ],
       temperature: 0.2,
-      max_tokens: 300,
+      max_completion_tokens: 300,
     });
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -430,7 +430,7 @@ Provide JSON:
             }
           ],
           temperature: 0.2,
-          max_tokens: 600
+          max_completion_tokens: 600
         });
 
         comparativeBenchmark = parseJSONResponse(
@@ -472,7 +472,7 @@ Provide JSON:
           }
         ],
         temperature: 0.3,
-        max_tokens: 600
+        max_completion_tokens: 600
       }),
 
       // Reviewer B: Experimentalist (Empirical Rigor)
@@ -501,7 +501,7 @@ Provide JSON:
           }
         ],
         temperature: 0.3,
-        max_tokens: 600
+        max_completion_tokens: 600
       }),
 
       // Reviewer C: Impact Assessor (Significance)
@@ -532,7 +532,7 @@ Provide JSON:
           }
         ],
         temperature: 0.3,
-        max_tokens: 600
+        max_completion_tokens: 600
       })
     ];
 
