@@ -343,7 +343,7 @@ Return JSON: { "type": "GENERAL" | "OWN" | "EXTERNAL", "reason": string }`
 
 // --- 6. Paper Review API (Multi-Agent Reviewer System) ---
 app.post("/analyze/review-paper", async (req: Request, res: Response) => {
-  const { sections, venue, profileId } = req.body;
+  const { sections, venue, profileId, acceptedSamples, rejectedSamples } = req.body;
 
   if (!sections || typeof sections !== 'object') {
     return res.status(400).json({ error: "sections object is required" });
@@ -360,8 +360,65 @@ app.post("/analyze/review-paper", async (req: Request, res: Response) => {
   const profileContext = getProfileContext(profileId);
   const venueContext = venue ? `\nTarget Venue: ${venue}` : "";
 
+  // Prepare comparison context if samples provided
+  let comparisonContext = "";
+  if (acceptedSamples && Array.isArray(acceptedSamples) && acceptedSamples.length > 0) {
+    const acceptedAbstracts = acceptedSamples.map((s: any, i: number) =>
+      `Accepted #${i+1}: ${s.abstract?.substring(0, 400) || s}`
+    ).join("\n\n");
+    comparisonContext += `\n\nAccepted Paper Samples (for comparison):\n${acceptedAbstracts}`;
+  }
+  if (rejectedSamples && Array.isArray(rejectedSamples) && rejectedSamples.length > 0) {
+    const rejectedAbstracts = rejectedSamples.map((s: any, i: number) =>
+      `Rejected #${i+1}: ${s.abstract?.substring(0, 400) || s}`
+    ).join("\n\n");
+    comparisonContext += `\n\nRejected Paper Samples (for comparison):\n${rejectedAbstracts}`;
+  }
+
   try {
-    // Stage 1: Parallel section analysis (3 reviewers)
+    // Stage 1: Comparative Benchmarking (if samples provided)
+    let comparativeBenchmark = null;
+    if (comparisonContext) {
+      try {
+        const benchmarkCompletion = await openai.chat.completions.create({
+          model: "gpt-5-mini",
+          messages: [
+            {
+              role: "system",
+              content: "You are an expert at comparing research papers. Analyze the differences between this paper and accepted/rejected samples. Respond ONLY with valid JSON."
+            },
+            {
+              role: "user",
+              content: `Compare this paper's abstract with the samples:
+
+Current Paper Abstract: ${abstract}
+${comparisonContext}
+
+Provide JSON:
+{
+  "yourNoveltyScore": 0-10,
+  "acceptedAvgNovelty": 0-10,
+  "yourRigorScore": 0-10,
+  "acceptedAvgRigor": 0-10,
+  "keyGaps": ["gap 1", "gap 2"],
+  "strengths": ["strength vs rejected papers"]
+}`
+            }
+          ],
+          temperature: 0.2,
+          max_tokens: 600
+        });
+
+        comparativeBenchmark = parseJSONResponse(
+          benchmarkCompletion.choices[0]?.message?.content || "{}",
+          null
+        );
+      } catch (e) {
+        console.error("Benchmark analysis failed:", e);
+      }
+    }
+
+    // Stage 2: Parallel section analysis (3 reviewers)
     const reviewerPromises = [
       // Reviewer A: Theorist (Novelty & Formalism)
       openai.chat.completions.create({
@@ -522,7 +579,8 @@ Provide JSON:
           category: "experiment",
           issue: w
         }))
-      ].slice(0, 5) // Top 5 issues
+      ].slice(0, 5), // Top 5 issues
+      comparativeBenchmark: comparativeBenchmark || undefined
     };
 
     console.log(`✅ Paper Review Complete (score: ${overallScore}/10)`);
