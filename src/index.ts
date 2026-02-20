@@ -123,23 +123,32 @@ Return JSON: { "isInformal": boolean, "suggestions": string[], "reason": string 
 
 // --- 2. Batch Citation Analysis (Hybrid AI Strategy) ---
 app.post("/analyze/citations-batch", async (req: Request, res: Response) => {
+  console.log("🔵 [SERVER] /analyze/citations-batch endpoint called");
+  const startTime = Date.now();
+
   const { candidates, profileId } = req.body;
+  console.log(`📦 [SERVER] Received ${candidates?.length || 0} candidates, profileId: ${profileId}`);
 
   if (!Array.isArray(candidates) || candidates.length === 0) {
+    console.log("❌ [SERVER] No candidates provided");
     return res.status(400).json({ error: "candidates array is required" });
   }
 
   if (candidates.length > 100) {
+    console.log(`❌ [SERVER] Too many candidates: ${candidates.length}`);
     return res.status(400).json({ error: "Maximum 100 candidates per batch" });
   }
 
   const profileContext = getProfileContext(profileId);
+  console.log(`📋 [SERVER] Profile context: ${profileContext.substring(0, 100)}...`);
 
   try {
     // Build batch prompt
     const candidateList = candidates
       .map((c, i) => `[${i + 1}] ID: ${c.id}\n   Text: "${c.text}"\n   Context: "${c.context}"\n   Reason: ${c.reason}`)
       .join("\n\n");
+
+    console.log(`📝 [SERVER] Built prompt with ${candidateList.length} chars`);
 
     const prompt = `Analyze the following citation candidates for potential improvements. For each candidate, suggest:
 - Whether to apply a range notation (e.g., [1], [2], [3] → [1-3])
@@ -161,6 +170,9 @@ Citation Candidates:
 ${candidateList}
 ${profileContext}`;
 
+    console.log("⏳ [SERVER] Calling OpenAI API (gpt-5-mini)...");
+    const apiStartTime = Date.now();
+
     const completion = await openai.chat.completions.create({
       model: "gpt-5-mini",
       messages: [
@@ -177,13 +189,25 @@ ${profileContext}`;
       max_tokens: 2000,
     });
 
-    const responseText = completion.choices[0]?.message?.content || "[]";
-    const jsonResponse = parseJSONResponse(responseText, []);
+    const apiElapsed = Date.now() - apiStartTime;
+    console.log(`⏱️ [SERVER] OpenAI API responded in ${apiElapsed}ms`);
 
+    const responseText = completion.choices[0]?.message?.content || "[]";
+    console.log(`📄 [SERVER] Raw response (${responseText.length} chars):`, responseText.substring(0, 200));
+
+    const jsonResponse = parseJSONResponse(responseText, []);
+    console.log(`✅ [SERVER] Parsed JSON with ${jsonResponse.length} suggestions`);
+
+    const totalElapsed = Date.now() - startTime;
+    console.log(`🏁 [SERVER] Total request time: ${totalElapsed}ms`);
     console.log(`✅ Batch Citation Analysis (${candidates.length} candidates):`, JSON.stringify(jsonResponse, null, 2));
+
     res.json(jsonResponse);
   } catch (error: any) {
-    console.error("❌ Error:", error.message);
+    const totalElapsed = Date.now() - startTime;
+    console.error(`❌ [SERVER] Error after ${totalElapsed}ms:`, error.message);
+    console.error("❌ [SERVER] Error stack:", error.stack);
+
     if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
       res.status(504).json({ error: "Request timeout. Please try again." });
     } else if (error.status === 429) {
