@@ -341,6 +341,202 @@ Return JSON: { "type": "GENERAL" | "OWN" | "EXTERNAL", "reason": string }`
   }
 });
 
+// --- 6. Paper Review API (Multi-Agent Reviewer System) ---
+app.post("/analyze/review-paper", async (req: Request, res: Response) => {
+  const { sections, venue, profileId } = req.body;
+
+  if (!sections || typeof sections !== 'object') {
+    return res.status(400).json({ error: "sections object is required" });
+  }
+
+  const { abstract, introduction, method, results, discussion } = sections;
+
+  if (!abstract || !introduction || !method || !results) {
+    return res.status(400).json({
+      error: "Required sections: abstract, introduction, method, results"
+    });
+  }
+
+  const profileContext = getProfileContext(profileId);
+  const venueContext = venue ? `\nTarget Venue: ${venue}` : "";
+
+  try {
+    // Stage 1: Parallel section analysis (3 reviewers)
+    const reviewerPromises = [
+      // Reviewer A: Theorist (Novelty & Formalism)
+      openai.chat.completions.create({
+        model: "gpt-5-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are Reviewer A, a theorist evaluating novelty and technical soundness. Focus on: (1) Contribution clarity, (2) Novelty assessment, (3) Technical rigor, (4) Problem formulation.${profileContext}${venueContext}\n\nRespond ONLY with valid JSON.`
+          },
+          {
+            role: "user",
+            content: `Review this paper:
+
+Abstract: ${abstract}
+
+Introduction: ${introduction.substring(0, 2000)}
+
+Method: ${method.substring(0, 2000)}
+
+Provide JSON:
+{
+  "score": 0-10,
+  "strengths": ["strength 1", "strength 2"],
+  "weaknesses": ["weakness 1", "weakness 2"],
+  "comment": "2-3 sentence summary"
+}`
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 600
+      }),
+
+      // Reviewer B: Experimentalist (Empirical Rigor)
+      openai.chat.completions.create({
+        model: "gpt-5-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are Reviewer B, an experimentalist evaluating empirical rigor. Focus on: (1) Experimental design, (2) Baseline comparisons, (3) Statistical validity, (4) Reproducibility.${profileContext}${venueContext}\n\nRespond ONLY with valid JSON.`
+          },
+          {
+            role: "user",
+            content: `Review this paper:
+
+Method: ${method.substring(0, 2000)}
+
+Results: ${results.substring(0, 2000)}
+
+Provide JSON:
+{
+  "score": 0-10,
+  "strengths": ["strength 1", "strength 2"],
+  "weaknesses": ["weakness 1", "weakness 2"],
+  "comment": "2-3 sentence summary"
+}`
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 600
+      }),
+
+      // Reviewer C: Impact Assessor (Significance)
+      openai.chat.completions.create({
+        model: "gpt-5-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are Reviewer C, assessing impact and significance. Focus on: (1) Problem importance, (2) Practical applicability, (3) Community value, (4) Long-term impact.${profileContext}${venueContext}\n\nRespond ONLY with valid JSON.`
+          },
+          {
+            role: "user",
+            content: `Review this paper:
+
+Abstract: ${abstract}
+
+Introduction: ${introduction.substring(0, 1500)}
+
+${discussion ? `Discussion: ${discussion.substring(0, 1500)}` : ""}
+
+Provide JSON:
+{
+  "score": 0-10,
+  "strengths": ["strength 1", "strength 2"],
+  "weaknesses": ["weakness 1", "weakness 2"],
+  "comment": "2-3 sentence summary"
+}`
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 600
+      })
+    ];
+
+    const [revA, revB, revC] = await Promise.all(reviewerPromises);
+
+    const reviewerA = parseJSONResponse(revA.choices[0]?.message?.content || "{}", {
+      score: 5, strengths: [], weaknesses: [], comment: ""
+    });
+    const reviewerB = parseJSONResponse(revB.choices[0]?.message?.content || "{}", {
+      score: 5, strengths: [], weaknesses: [], comment: ""
+    });
+    const reviewerC = parseJSONResponse(revC.choices[0]?.message?.content || "{}", {
+      score: 5, strengths: [], weaknesses: [], comment: ""
+    });
+
+    // Calculate overall score
+    const overallScore = ((reviewerA.score + reviewerB.score + reviewerC.score) / 3).toFixed(1);
+    const acceptProbability = Math.round(Math.min(100, Math.max(0, (parseFloat(overallScore) - 3) * 16.67)));
+
+    // Determine recommendation
+    let recommendation = "reject";
+    if (parseFloat(overallScore) >= 8) recommendation = "strong_accept";
+    else if (parseFloat(overallScore) >= 7) recommendation = "weak_accept";
+    else if (parseFloat(overallScore) >= 6) recommendation = "borderline_accept";
+    else if (parseFloat(overallScore) >= 5) recommendation = "borderline_reject";
+    else if (parseFloat(overallScore) >= 4) recommendation = "weak_reject";
+
+    const response = {
+      overallScore: parseFloat(overallScore),
+      acceptProbability,
+      recommendation,
+      reviewerScores: [
+        {
+          persona: "Theorist",
+          focus: "novelty_and_formalism",
+          score: reviewerA.score,
+          strengths: reviewerA.strengths,
+          weaknesses: reviewerA.weaknesses,
+          detailedComment: reviewerA.comment
+        },
+        {
+          persona: "Experimentalist",
+          focus: "empirical_rigor",
+          score: reviewerB.score,
+          strengths: reviewerB.strengths,
+          weaknesses: reviewerB.weaknesses,
+          detailedComment: reviewerB.comment
+        },
+        {
+          persona: "Impact_Assessor",
+          focus: "significance_and_impact",
+          score: reviewerC.score,
+          strengths: reviewerC.strengths,
+          weaknesses: reviewerC.weaknesses,
+          detailedComment: reviewerC.comment
+        }
+      ],
+      criticalIssues: [
+        ...reviewerA.weaknesses.map((w: string, i: number) => ({
+          id: `issue_a${i}`,
+          severity: "medium",
+          category: "novelty",
+          issue: w
+        })),
+        ...reviewerB.weaknesses.map((w: string, i: number) => ({
+          id: `issue_b${i}`,
+          severity: "high",
+          category: "experiment",
+          issue: w
+        }))
+      ].slice(0, 5) // Top 5 issues
+    };
+
+    console.log(`✅ Paper Review Complete (score: ${overallScore}/10)`);
+    res.json(response);
+  } catch (error: any) {
+    console.error("❌ Error:", error.message);
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      res.status(504).json({ error: "Request timeout. Paper review takes 1-2 minutes." });
+    } else {
+      res.status(500).json({ error: "Failed to review paper", details: error.message });
+    }
+  }
+});
+
 // Health check endpoint
 app.get("/health", (req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
